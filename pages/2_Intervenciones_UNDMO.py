@@ -10,14 +10,17 @@ st.set_page_config(
     layout="wide"
 )
 
-API_URL_INTERVENCIONES = "https://www.datos.gov.co/api/v3/views/3fu3-w3iv/query.json"
+# Endpoint Socrata optimizado para recursos JSON directos
+API_URL_INTERVENCIONES = "https://www.datos.gov.co/resource/3fu3-w3iv.json?$limit=5000"
 
 @st.cache_data(ttl=3600)
 def cargar_datos_intervenciones():
     try:
-        response = requests.get(API_URL_INTERVENCIONES, timeout=15)
+        # Aumentamos el timeout a 30 segundos para evitar cortes por latencia en la red
+        response = requests.get(API_URL_INTERVENCIONES, timeout=30)
         response.raise_for_status()
         data = response.json()
+        
         if isinstance(data, list):
             return pd.DataFrame(data)
         elif isinstance(data, dict):
@@ -33,10 +36,11 @@ def limpiar_intervenciones(df):
     if df is None or df.empty:
         return pd.DataFrame()
     
+    # Filtrar metadatos internos de Socrata si los hay
     cols_a_mantener = [c for c in df.columns if not c.startswith(':')]
     df = df[cols_a_mantener].copy()
     
-    # Asegurar columnas numéricas técnicas de municiones
+    # Asegurar columnas numéricas técnicas de municiones y lesiones
     cols_numericas = [
         'a_o', 'esfera_fragmentable_o_c_0', 'cartucho_de_gas_cs_37_38',
         'granada_de_aturdimiento', 'granada_fum_gena_de_humo', 'granada_gas_cs_de_mano',
@@ -48,7 +52,7 @@ def limpiar_intervenciones(df):
             df[col] = 0
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # Limpieza de textos
+    # Limpieza y normalización de textos
     for col in ['factor_de_atenci_n_que_genera', 'mes', 'ciudad', 'departamento', 'gudmo']:
         if col not in df.columns:
             df[col] = 'NO REGISTRA'
@@ -63,12 +67,17 @@ Módulo especializado en el registro y fiscalización de intervenciones específ
 unidades GUDMO participantes y el reporte detallado de municiones, elementos tácticos y personal afectado.
 """)
 
-with st.spinner("Descargando registro de intervenciones..."):
+with st.spinner("Descargando registro oficial de intervenciones desde datos.gov.co..."):
     raw_df = cargar_datos_intervenciones()
 
+if raw_df is None or raw_df.empty:
+    st.warning("No se pudieron obtener registros desde la API de Intervenciones. Por favor, verifica tu conexión o intenta recargar.")
+    st.stop()
+
 df = limpiar_intervenciones(raw_df)
+
 if df.empty:
-    st.warning("No se encontraron registros en la API de Intervenciones.")
+    st.error("El conjunto de datos procesado está vacío.")
     st.stop()
 
 # Filtros laterales
@@ -84,6 +93,11 @@ if sel_dpto: df = df[df['departamento'].isin(sel_dpto)]
 factores = sorted(df['factor_de_atenci_n_que_genera'].unique().tolist())
 sel_factor = st.sidebar.multiselect("Factor de Atención", factores, default=factores)
 if sel_factor: df = df[df['factor_de_atenci_n_que_genera'].isin(sel_factor)]
+
+st.sidebar.markdown("---")
+if st.sidebar.button("🔄 Recargar Datos"):
+    st.cache_data.clear()
+    st.rerun()
 
 # KPIs de Intervenciones
 total_intervenciones = len(df)
@@ -109,17 +123,21 @@ st.markdown("---")
 col_1, col_2 = st.columns(2)
 
 with col_1:
-    df_factor = df.groupby('factor_de_atenci_n_que_genera')['numero'].count().reset_index().sort_values('numero', ascending=False).head(10)
-    fig_f = px.bar(df_factor, x='numero', y='factor_de_atenci_n_que_genera', orientation='h',
+    df_factor = df.groupby('factor_de_atenci_n_que_genera')['a_o'].count().reset_index()
+    df_factor.columns = ['factor', 'conteo']
+    df_factor = df_factor.sort_values('conteo', ascending=False).head(10)
+    fig_f = px.bar(df_factor, x='conteo', y='factor', orientation='h',
                    title="Top Factores de Atención que Generan Intervención",
-                   labels={'numero': 'Cantidad de Intervenciones', 'factor_de_atenci_n_que_genera': 'Factor'})
+                   labels={'conteo': 'Cantidad de Intervenciones', 'factor': 'Factor'})
     st.plotly_chart(fig_f, use_container_width=True)
 
 with col_2:
-    df_gudmo = df.groupby('gudmo')['numero'].count().reset_index().sort_values('numero', ascending=False).head(10)
-    fig_g = px.bar(df_gudmo, x='numero', y='gudmo', orientation='h',
+    df_gudmo = df.groupby('gudmo')['a_o'].count().reset_index()
+    df_gudmo.columns = ['gudmo', 'conteo']
+    df_gudmo = df_gudmo.sort_values('conteo', ascending=False).head(10)
+    fig_g = px.bar(df_gudmo, x='conteo', y='gudmo', orientation='h',
                    title="Participación de Grupos GUDMO",
-                   labels={'numero': 'Intervenciones Atendidas', 'gudmo': 'Grupo GUDMO'})
+                   labels={'conteo': 'Intervenciones Atendidas', 'gudmo': 'Grupo GUDMO'})
     st.plotly_chart(fig_g, use_container_width=True)
 
 st.markdown("### 📊 Consumo de Municiones y Elementos Tácticos")
