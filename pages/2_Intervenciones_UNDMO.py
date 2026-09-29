@@ -37,23 +37,32 @@ def limpiar_intervenciones(df):
     cols_a_mantener = [c for c in df.columns if not c.startswith(':')]
     df = df[cols_a_mantener].copy()
     
-    # Columnas de municiones técnicas a convertir a numérico
-    cols_municiones = [
-        'esfera_fragmentable_o_c_0', 
-        'cartucho_de_gas_cs_37_38',
-        'granada_de_aturdimiento', 
-        'granada_fum_gena_de_humo', 
-        'granada_gas_cs_de_mano',
-        'cartucho_gas_cs_lanzador', 
-        'cartucho_aturdimiento_lanzador'
-    ]
+    # Diccionario completo de columnas técnicas de munición y elementos tácticos según JSON oficial
+    cols_municiones_dict = {
+        'Esfera Fragmentable O.C.': 'esfera_fragmentable_o_c_0',
+        'Cartucho Gas CS 37/38mm': 'cartucho_de_gas_cs_37_38',
+        'Granada de Aturdimiento': 'granada_de_aturdimiento',
+        'Granada Fumígena de Humo': 'granada_fum_gena_de_humo',
+        'Granada Gas CS de Mano': 'granada_gas_cs_de_mano',
+        'Cartucho Gas CS Lanzador': 'cartucho_gas_cs_lanzador',
+        'Cartucho Aturdimiento Lanzador': 'cartucho_aturdimiento_lanzador',
+        'Cartucho Dispositivo Defensivo': 'cartucho_dispositivo_de',
+        'Cartucho Impulsor 37mm': 'cartucho_impulsor_37_mm',
+        'Cartucho Gas CS 40mm': 'cartucho_de_gas_cs_40_mm',
+        'Cartucho Impacto Dirigido': 'cartucho_impacto_dirigido',
+        'Granada Gas CS con Con': 'granada_de_gas_cs_con'
+    }
     
-    cols_numericas = ['a_o', 'ciudadanos_lesionados', 'policias_lesionados'] + cols_municiones
-    
-    for col in cols_numericas:
-        if col not in df.columns:
-            df[col] = 0
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    # Asegurar que todas las columnas existan y sean numéricas
+    for nombre_legible, col_tec in cols_municiones_dict.items():
+        if col_tec not in df.columns:
+            df[col_tec] = 0
+        df[col_tec] = pd.to_numeric(df[col_tec], errors='coerce').fillna(0)
+
+    for col_lesion in ['ciudadanos_lesionados', 'policias_lesionados']:
+        if col_lesion not in df.columns:
+            df[col_lesion] = 0
+        df[col_lesion] = pd.to_numeric(df[col_lesion], errors='coerce').fillna(0)
 
     # Limpieza de textos
     for col in ['factor_de_atenci_n_que_genera', 'mes', 'ciudad', 'departamento', 'gudmo']:
@@ -61,17 +70,20 @@ def limpiar_intervenciones(df):
             df[col] = 'NO REGISTRA'
         df[col] = df[col].fillna('NO REGISTRA').astype(str).str.strip().str.upper()
 
-    df['a_o'] = df['a_o'].astype(int).astype(str)
-    
-    # Suma total de municiones por registro individual
-    df['total_municiones_evento'] = df[cols_municiones].sum(axis=1)
+    if 'a_o' in df.columns:
+        df['a_o'] = pd.to_numeric(df['a_o'], errors='coerce').fillna(0).astype(int).astype(str)
+    else:
+        df['a_o'] = 'DESCONOCIDO'
+
+    # Calcular total de municiones por evento sumando todas las columnas técnicas
+    df['total_municiones_evento'] = df[list(cols_municiones_dict.values())].sum(axis=1)
     
     return df
 
 st.title("🔍 Detalle Operativo - Intervenciones UNDMO")
 st.markdown("""
 Módulo especializado en el registro y fiscalización de intervenciones específicas, abarcando factores de atención, 
-unidades GUDMO participantes, análisis detallado de municiones y el personal afectado.
+unidades GUDMO participantes, análisis detallado de municiones, elementos tácticos y personal afectado.
 """)
 
 with st.spinner("Descargando registro oficial de intervenciones desde datos.gov.co..."):
@@ -118,20 +130,25 @@ cols_mun_dict = {
     'Granada Fumígena de Humo': 'granada_fum_gena_de_humo',
     'Granada Gas CS de Mano': 'granada_gas_cs_de_mano',
     'Cartucho Gas CS Lanzador': 'cartucho_gas_cs_lanzador',
-    'Cartucho Aturdimiento Lanzador': 'cartucho_aturdimiento_lanzador'
+    'Cartucho Aturdimiento Lanzador': 'cartucho_aturdimiento_lanzador',
+    'Cartucho Dispositivo Defensivo': 'cartucho_dispositivo_de',
+    'Cartucho Impulsor 37mm': 'cartucho_impulsor_37_mm',
+    'Cartucho Gas CS 40mm': 'cartucho_de_gas_cs_40_mm',
+    'Cartucho Impacto Dirigido': 'cartucho_impacto_dirigido',
+    'Granada Gas CS con Con': 'granada_de_gas_cs_con'
 }
 
 # Totales globales por cada tipo de munición
 totales_por_tipo = {nombre: int(df[col].sum()) for nombre, col in cols_mun_dict.items()}
-tipo_mas_usado = max(totales_por_tipo, key=totales_por_tipo.get)
-cantidad_max_mun = totales_por_tipo[tipo_mas_usado]
+tipo_mas_usado = max(totales_por_tipo, key=totales_por_tipo.get) if totales_por_tipo else "N/A"
+cantidad_max_mun = totales_por_tipo.get(tipo_mas_usado, 0)
 
-# GUDMO que más municiones ha usado (Corregido y especificado nominalmente)
+# GUDMO que más municiones ha usado (Agrupado explícitamente y seleccionado el máximo)
 df_gudmo_mun = df.groupby('gudmo')['total_municiones_evento'].sum().reset_index()
 if not df_gudmo_mun.empty:
-    top_gudmo_row = df_gudmo_mun.loc[df_gudmo_mun['total_municiones_evento'].idxmax()]
-    gudmo_mas_activo = str(top_gudmo_row['gudmo'])
-    gudmo_cant = int(top_gudmo_row['total_municiones_evento'])
+    df_gudmo_mun = df_gudmo_mun.sort_values(by='total_municiones_evento', ascending=False)
+    gudmo_mas_activo = str(df_gudmo_mun.iloc[0]['gudmo'])
+    gudmo_cant = int(df_gudmo_mun.iloc[0]['total_municiones_evento'])
 else:
     gudmo_mas_activo = "No registra"
     gudmo_cant = 0
@@ -196,16 +213,45 @@ with col_2:
     st.plotly_chart(fig_g, use_container_width=True)
 
 # ---------------------------------------------------------
-# NUEVO: ANÁLISIS Y GRÁFICAS POR TIPO DE MUNICIÓN, CIUDAD Y FACTOR DE ATENCIÓN
+# ANÁLISIS VISUAL: GUDMO VS TIPO DE MUNICIÓN
 # ---------------------------------------------------------
 st.markdown("---")
-st.subheader("📊 Análisis Visual y Agrupado de Municiones (Ciudad y Factor de Atención)")
+st.subheader("📊 Análisis de Consumo: Grupo GUDMO vs. Tipo de Munición")
 st.markdown("""
-Gráfica interactiva de consumo de elementos tácticos agrupada por factores de atención y ciudades. 
-Utiliza los filtros de abajo para refinar la visualización gráfica.
+Gráfica comparativa que muestra qué tipos de munición y elementos tácticos emplean los diferentes grupos GUDMO.
 """)
 
-# Selector para la gráfica de municiones agrupadas
+df_melted_gudmo = pd.melt(
+    df,
+    id_vars=['gudmo'],
+    value_vars=list(cols_mun_dict.values()),
+    var_name='tipo_municion_tec',
+    value_name='cantidad'
+)
+inv_cols_mun_dict = {v: k for k, v in cols_mun_dict.items()}
+df_melted_gudmo['Tipo de Munición'] = df_melted_gudmo['tipo_municion_tec'].map(inv_cols_mun_dict)
+
+df_gudmo_mun_tipo = df_melted_gudmo.groupby(['gudmo', 'Tipo de Munición'])['cantidad'].sum().reset_index()
+df_gudmo_mun_tipo = df_gudmo_mun_tipo[df_gudmo_mun_tipo['cantidad'] > 0] # Mostrar solo consumo activo
+
+fig_gudmo_mun = px.bar(
+    df_gudmo_mun_tipo,
+    x='gudmo',
+    y='cantidad',
+    color='Tipo de Munición',
+    title="Consumo de Municiones por Grupo GUDMO",
+    labels={'gudmo': 'Grupo GUDMO', 'cantidad': 'Cantidad Total Consumida'},
+    barmode='group'
+)
+fig_gudmo_mun.update_layout(xaxis_tickangle=-45)
+st.plotly_chart(fig_gudmo_mun, use_container_width=True)
+
+# ---------------------------------------------------------
+# ANÁLISIS VISUAL Y AGRUPADO: CIUDAD Y FACTOR DE ATENCIÓN
+# ---------------------------------------------------------
+st.markdown("---")
+st.subheader("📊 Análisis Visual de Municiones por Ciudad y Factor de Atención")
+
 col_f1, col_f2 = st.columns(2)
 with col_f1:
     ciudades_disp = sorted(df['ciudad'].unique().tolist())
@@ -214,28 +260,22 @@ with col_f2:
     factores_disp = sorted(df['factor_de_atenci_n_que_genera'].unique().tolist())
     sel_factor_grafica = st.multiselect("Filtrar Factor(es) para Gráfica", factores_disp, default=factores_disp[:5] if len(factores_disp) > 5 else factores_disp)
 
-# Filtrar dataframe para la gráfica
 df_graf_mun = df.copy()
 if sel_ciudad_grafica:
     df_graf_mun = df_graf_mun[df_graf_mun['ciudad'].isin(sel_ciudad_grafica)]
 if sel_factor_grafica:
     df_graf_mun = df_graf_mun[df_graf_mun['factor_de_atenci_n_que_genera'].isin(sel_factor_grafica)]
 
-# Preparar datos formato largo (melt) para graficar tipos de munición agrupados
-df_melted = pd.melt(
+df_melted_fact = pd.melt(
     df_graf_mun,
     id_vars=['ciudad', 'factor_de_atenci_n_que_genera'],
     value_vars=list(cols_mun_dict.values()),
     var_name='tipo_municion_tec',
     value_name='cantidad'
 )
+df_melted_fact['Tipo de Munición'] = df_melted_fact['tipo_municion_tec'].map(inv_cols_mun_dict)
 
-# Mapear nombres técnicos a legibles
-inv_cols_mun_dict = {v: k for k, v in cols_mun_dict.items()}
-df_melted['Tipo de Munición'] = df_melted['tipo_municion_tec'].map(inv_cols_mun_dict)
-
-# Agrupar por Factor de Atención y Tipo de Munición
-df_agrupado_graf = df_melted.groupby(['factor_de_atenci_n_que_genera', 'Tipo de Munición'])['cantidad'].sum().reset_index()
+df_agrupado_graf = df_melted_fact.groupby(['factor_de_atenci_n_que_genera', 'Tipo de Munición'])['cantidad'].sum().reset_index()
 
 fig_municiones = px.bar(
     df_agrupado_graf,
