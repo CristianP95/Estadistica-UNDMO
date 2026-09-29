@@ -37,7 +37,6 @@ def limpiar_intervenciones(df):
     cols_a_mantener = [c for c in df.columns if not c.startswith(':')]
     df = df[cols_a_mantener].copy()
     
-    # Diccionario completo de columnas técnicas de munición y elementos tácticos según JSON oficial
     cols_municiones_dict = {
         'Esfera Fragmentable O.C.': 'esfera_fragmentable_o_c_0',
         'Cartucho Gas CS 37/38mm': 'cartucho_de_gas_cs_37_38',
@@ -53,7 +52,6 @@ def limpiar_intervenciones(df):
         'Granada Gas CS con Con': 'granada_de_gas_cs_con'
     }
     
-    # Asegurar que todas las columnas existan y sean numéricas
     for nombre_legible, col_tec in cols_municiones_dict.items():
         if col_tec not in df.columns:
             df[col_tec] = 0
@@ -64,7 +62,6 @@ def limpiar_intervenciones(df):
             df[col_lesion] = 0
         df[col_lesion] = pd.to_numeric(df[col_lesion], errors='coerce').fillna(0)
 
-    # Limpieza de textos
     for col in ['factor_de_atenci_n_que_genera', 'mes', 'ciudad', 'departamento', 'gudmo']:
         if col not in df.columns:
             df[col] = 'NO REGISTRA'
@@ -75,7 +72,6 @@ def limpiar_intervenciones(df):
     else:
         df['a_o'] = 'DESCONOCIDO'
 
-    # Calcular total de municiones por evento sumando todas las columnas técnicas
     df['total_municiones_evento'] = df[list(cols_municiones_dict.values())].sum(axis=1)
     
     return df
@@ -138,13 +134,14 @@ cols_mun_dict = {
     'Granada Gas CS con Con': 'granada_de_gas_cs_con'
 }
 
-# Totales globales por cada tipo de munición
 totales_por_tipo = {nombre: int(df[col].sum()) for nombre, col in cols_mun_dict.items()}
 tipo_mas_usado = max(totales_por_tipo, key=totales_por_tipo.get) if totales_por_tipo else "N/A"
 cantidad_max_mun = totales_por_tipo.get(tipo_mas_usado, 0)
 
-# GUDMO que más municiones ha usado (Agrupado explícitamente y seleccionado el máximo)
+# CÁLCULO CORREGIDO: Agrupar GUDMO y excluir etiquetas ficticias como 'TOTALES'
 df_gudmo_mun = df.groupby('gudmo')['total_municiones_evento'].sum().reset_index()
+df_gudmo_mun = df_gudmo_mun[~df_gudmo_mun['gudmo'].isin(['TOTALES', 'NAN', ''])]
+
 if not df_gudmo_mun.empty:
     df_gudmo_mun = df_gudmo_mun.sort_values(by='total_municiones_evento', ascending=False)
     gudmo_mas_activo = str(df_gudmo_mun.iloc[0]['gudmo'])
@@ -232,7 +229,8 @@ inv_cols_mun_dict = {v: k for k, v in cols_mun_dict.items()}
 df_melted_gudmo['Tipo de Munición'] = df_melted_gudmo['tipo_municion_tec'].map(inv_cols_mun_dict)
 
 df_gudmo_mun_tipo = df_melted_gudmo.groupby(['gudmo', 'Tipo de Munición'])['cantidad'].sum().reset_index()
-df_gudmo_mun_tipo = df_gudmo_mun_tipo[df_gudmo_mun_tipo['cantidad'] > 0] # Mostrar solo consumo activo
+df_gudmo_mun_tipo = df_gudmo_mun_tipo[df_gudmo_mun_tipo['cantidad'] > 0]
+df_gudmo_mun_tipo = df_gudmo_mun_tipo[~df_gudmo_mun_tipo['gudmo'].isin(['TOTALES', 'NAN', ''])]
 
 fig_gudmo_mun = px.bar(
     df_gudmo_mun_tipo,
