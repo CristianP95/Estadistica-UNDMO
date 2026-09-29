@@ -63,7 +63,7 @@ def limpiar_intervenciones(df):
 
     df['a_o'] = df['a_o'].astype(int).astype(str)
     
-    # Suma total de municiones por registro individual para facilitar análisis
+    # Suma total de municiones por registro individual
     df['total_municiones_evento'] = df[cols_municiones].sum(axis=1)
     
     return df
@@ -126,14 +126,14 @@ totales_por_tipo = {nombre: int(df[col].sum()) for nombre, col in cols_mun_dict.
 tipo_mas_usado = max(totales_por_tipo, key=totales_por_tipo.get)
 cantidad_max_mun = totales_por_tipo[tipo_mas_usado]
 
-# GUDMO que más municiones ha usado
+# GUDMO que más municiones ha usado (Corregido y especificado nominalmente)
 df_gudmo_mun = df.groupby('gudmo')['total_municiones_evento'].sum().reset_index()
 if not df_gudmo_mun.empty:
     top_gudmo_row = df_gudmo_mun.loc[df_gudmo_mun['total_municiones_evento'].idxmax()]
-    gudmo_mas_activo = top_gudmo_row['gudmo']
+    gudmo_mas_activo = str(top_gudmo_row['gudmo'])
     gudmo_cant = int(top_gudmo_row['total_municiones_evento'])
 else:
-    gudmo_mas_activo = "N/A"
+    gudmo_mas_activo = "No registra"
     gudmo_cant = 0
 
 # KPIs Principales
@@ -196,24 +196,72 @@ with col_2:
     st.plotly_chart(fig_g, use_container_width=True)
 
 # ---------------------------------------------------------
-# ANÁLISIS AGRUPADO: CIUDAD, FACTOR DE ATENCIÓN Y MUNICIÓN
+# NUEVO: ANÁLISIS Y GRÁFICAS POR TIPO DE MUNICIÓN, CIUDAD Y FACTOR DE ATENCIÓN
 # ---------------------------------------------------------
 st.markdown("---")
-st.subheader("📊 Análisis de Municiones Agrupado por Ciudad y Factor de Atención")
+st.subheader("📊 Análisis Visual y Agrupado de Municiones (Ciudad y Factor de Atención)")
 st.markdown("""
-Tabla dinámica que consolida el consumo desglosado de cada tipo de munición y elemento táctico, 
-organizado jerárquicamente por **Ciudad** y **Factor de Atención**.
+Gráfica interactiva de consumo de elementos tácticos agrupada por factores de atención y ciudades. 
+Utiliza los filtros de abajo para refinar la visualización gráfica.
 """)
 
-# Crear dataframe resumido con agrupación
+# Selector para la gráfica de municiones agrupadas
+col_f1, col_f2 = st.columns(2)
+with col_f1:
+    ciudades_disp = sorted(df['ciudad'].unique().tolist())
+    sel_ciudad_grafica = st.multiselect("Filtrar Ciudad(es) para Gráfica", ciudades_disp, default=ciudades_disp[:5] if len(ciudades_disp) > 5 else ciudades_disp)
+with col_f2:
+    factores_disp = sorted(df['factor_de_atenci_n_que_genera'].unique().tolist())
+    sel_factor_grafica = st.multiselect("Filtrar Factor(es) para Gráfica", factores_disp, default=factores_disp[:5] if len(factores_disp) > 5 else factores_disp)
+
+# Filtrar dataframe para la gráfica
+df_graf_mun = df.copy()
+if sel_ciudad_grafica:
+    df_graf_mun = df_graf_mun[df_graf_mun['ciudad'].isin(sel_ciudad_grafica)]
+if sel_factor_grafica:
+    df_graf_mun = df_graf_mun[df_graf_mun['factor_de_atenci_n_que_genera'].isin(sel_factor_grafica)]
+
+# Preparar datos formato largo (melt) para graficar tipos de munición agrupados
+df_melted = pd.melt(
+    df_graf_mun,
+    id_vars=['ciudad', 'factor_de_atenci_n_que_genera'],
+    value_vars=list(cols_mun_dict.values()),
+    var_name='tipo_municion_tec',
+    value_name='cantidad'
+)
+
+# Mapear nombres técnicos a legibles
+inv_cols_mun_dict = {v: k for k, v in cols_mun_dict.items()}
+df_melted['Tipo de Munición'] = df_melted['tipo_municion_tec'].map(inv_cols_mun_dict)
+
+# Agrupar por Factor de Atención y Tipo de Munición
+df_agrupado_graf = df_melted.groupby(['factor_de_atenci_n_que_genera', 'Tipo de Munición'])['cantidad'].sum().reset_index()
+
+fig_municiones = px.bar(
+    df_agrupado_graf,
+    x='factor_de_atenci_n_que_genera',
+    y='cantidad',
+    color='Tipo de Munición',
+    title="Consumo de Municiones por Factor de Atención",
+    labels={'factor_de_atenci_n_que_genera': 'Factor de Atención', 'cantidad': 'Cantidad Total Consumida'},
+    barmode='group'
+)
+fig_municiones.update_layout(xaxis_tickangle=-45)
+st.plotly_chart(fig_municiones, use_container_width=True)
+
+# ---------------------------------------------------------
+# TABLA DINÁMICA: CIUDAD Y FACTOR DE ATENCIÓN
+# ---------------------------------------------------------
+st.markdown("---")
+st.subheader("📋 Tabla Dinámica Consolidada por Ciudad y Factor de Atención")
+
 cols_agrupacion = ['ciudad', 'factor_de_atenci_n_que_genera']
 dict_agregacion = {col: 'sum' for col in list(cols_mun_dict.values()) + ['total_municiones_evento']}
-dict_agregacion['a_o'] = 'count' # Contar número de intervenciones
+dict_agregacion['a_o'] = 'count'
 
 df_agrupado = df.groupby(cols_agrupacion).agg(dict_agregacion).reset_index()
 df_agrupado = df_agrupado.rename(columns={'a_o': 'total_intervenciones'})
 
-# Reemplazar nombres de columnas técnicas por nombres legibles en la visualización
 renombres_columnas = {
     'ciudad': 'Ciudad',
     'factor_de_atenci_n_que_genera': 'Factor de Atención',
@@ -232,5 +280,5 @@ st.dataframe(df_tabla_final, use_container_width=True)
 # TABLA DE REGISTROS RAW
 # ---------------------------------------------------------
 st.markdown("---")
-st.subheader("📋 Registro Detallado Individual de Intervenciones")
+st.subheader("📁 Registro Detallado Individual de Intervenciones")
 st.dataframe(df, use_container_width=True)
