@@ -9,7 +9,7 @@ import requests
 # CONFIGURACIÓN DE LA PÁGINA
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Visor Estadístico UDMO - Bogotá D.C.",
+    page_title="Visor Estadístico UNDMO - Bogotá D.C.",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -95,9 +95,9 @@ def limpiar_datos(df):
 # ---------------------------------------------------------
 # INTERFAZ PRINCIPAL - CARGA DE DATOS
 # ---------------------------------------------------------
-st.title("🛡️ Visor Estadístico e Integral - Actuaciones UDMO (Bogotá D.C.)")
+st.title("🛡️ Visor Estadístico e Integral - Actuaciones UNDMO (Bogotá D.C.)")
 st.markdown("""
-Plataforma pública de análisis de datos sobre las actuaciones de la **Unidad de Diálogo y Mantenimiento del Orden (UDMO)** 
+Plataforma pública de análisis de datos sobre las actuaciones de la **Unidad de Diálogo y Mantenimiento del Orden (UNDMO)** 
 de la Policía Nacional, construida para facilitar la consulta ciudadana y la transparencia institucional.
 """)
 
@@ -316,7 +316,7 @@ with tab5:
     
     st.markdown(f"""
     ### 📝 Resumen Ejecutivo para la Ciudadanía
-    * **Alcance General:** El sistema registra un total de **{total_actuaciones:,}** intervenciones operativas de la UDMO, reflejando el despliegue institucional en el periodo analizado.
+    * **Alcance General:** El sistema registra un total de **{total_actuaciones:,}** intervenciones operativas de la UNDMO, reflejando el despliegue institucional en el periodo analizado.
     * **Volumen de Actividad:** La acumulación de servicios prestados asciende a **{suma_servicios_prestados:,}** atenciones focalizadas en la gestión de convivencia y orden público.
     * **Proporcionalidad del Uso de la Fuerza:** Tan solo un **{porcentaje_fuerza:.2f}%** de los eventos totales reportan el empleo de medidas de fuerza, lo que evidencia que la gran mayoría de las labores se desarrollan mediante protocolos de diálogo, disuasión y contención preventiva.
     """)
@@ -332,4 +332,4 @@ with tab5:
 # PIE DE PÁGINA
 # ---------------------------------------------------------
 st.markdown("---")
-st.markdown("<p style='text-align: center; color: gray;'>Plataforma pública de visualización y análisis de actuaciones de la Unidad de Diálogo y Mantenimiento del Orden (UDMO) - Bogotá D.C.</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: gray;'>Plataforma pública de visualización y análisis de actuaciones de la Unidad de Diálogo y Mantenimiento del Orden (UNDMO) - Bogotá D.C.</p>", unsafe_allow_html=True)
