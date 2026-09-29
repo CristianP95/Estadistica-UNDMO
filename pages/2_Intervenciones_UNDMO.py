@@ -10,13 +10,11 @@ st.set_page_config(
     layout="wide"
 )
 
-# Endpoint Socrata optimizado para recursos JSON directos
 API_URL_INTERVENCIONES = "https://www.datos.gov.co/resource/3fu3-w3iv.json?$limit=5000"
 
 @st.cache_data(ttl=3600)
 def cargar_datos_intervenciones():
     try:
-        # Aumentamos el timeout a 30 segundos para evitar cortes por latencia en la red
         response = requests.get(API_URL_INTERVENCIONES, timeout=30)
         response.raise_for_status()
         data = response.json()
@@ -36,35 +34,44 @@ def limpiar_intervenciones(df):
     if df is None or df.empty:
         return pd.DataFrame()
     
-    # Filtrar metadatos internos de Socrata si los hay
     cols_a_mantener = [c for c in df.columns if not c.startswith(':')]
     df = df[cols_a_mantener].copy()
     
-    # Asegurar columnas numéricas técnicas de municiones y lesiones
-    cols_numericas = [
-        'a_o', 'esfera_fragmentable_o_c_0', 'cartucho_de_gas_cs_37_38',
-        'granada_de_aturdimiento', 'granada_fum_gena_de_humo', 'granada_gas_cs_de_mano',
-        'cartucho_gas_cs_lanzador', 'cartucho_aturdimiento_lanzador', 'ciudadanos_lesionados', 'policias_lesionados'
+    # Columnas de municiones técnicas a convertir a numérico
+    cols_municiones = [
+        'esfera_fragmentable_o_c_0', 
+        'cartucho_de_gas_cs_37_38',
+        'granada_de_aturdimiento', 
+        'granada_fum_gena_de_humo', 
+        'granada_gas_cs_de_mano',
+        'cartucho_gas_cs_lanzador', 
+        'cartucho_aturdimiento_lanzador'
     ]
+    
+    cols_numericas = ['a_o', 'ciudadanos_lesionados', 'policias_lesionados'] + cols_municiones
     
     for col in cols_numericas:
         if col not in df.columns:
             df[col] = 0
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # Limpieza y normalización de textos
+    # Limpieza de textos
     for col in ['factor_de_atenci_n_que_genera', 'mes', 'ciudad', 'departamento', 'gudmo']:
         if col not in df.columns:
             df[col] = 'NO REGISTRA'
         df[col] = df[col].fillna('NO REGISTRA').astype(str).str.strip().str.upper()
 
     df['a_o'] = df['a_o'].astype(int).astype(str)
+    
+    # Suma total de municiones por registro individual para facilitar análisis
+    df['total_municiones_evento'] = df[cols_municiones].sum(axis=1)
+    
     return df
 
 st.title("🔍 Detalle Operativo - Intervenciones UNDMO")
 st.markdown("""
 Módulo especializado en el registro y fiscalización de intervenciones específicas, abarcando factores de atención, 
-unidades GUDMO participantes y el reporte detallado de municiones, elementos tácticos y personal afectado.
+unidades GUDMO participantes, análisis detallado de municiones y el personal afectado.
 """)
 
 with st.spinner("Descargando registro oficial de intervenciones desde datos.gov.co..."):
@@ -80,7 +87,9 @@ if df.empty:
     st.error("El conjunto de datos procesado está vacío.")
     st.stop()
 
-# Filtros laterales
+# ---------------------------------------------------------
+# FILTROS LATERALES
+# ---------------------------------------------------------
 st.sidebar.markdown("### 🎛️ Filtros de Intervención")
 anios = sorted(df['a_o'].unique().tolist())
 sel_anios = st.sidebar.multiselect("Año(s)", anios, default=anios)
@@ -99,27 +108,73 @@ if st.sidebar.button("🔄 Recargar Datos"):
     st.cache_data.clear()
     st.rerun()
 
-# KPIs de Intervenciones
+# ---------------------------------------------------------
+# CÁLCULOS DE MUNICIONES Y HALLAZGOS CLAVE
+# ---------------------------------------------------------
+cols_mun_dict = {
+    'Esfera Fragmentable O.C.': 'esfera_fragmentable_o_c_0',
+    'Cartucho Gas CS 37/38mm': 'cartucho_de_gas_cs_37_38',
+    'Granada de Aturdimiento': 'granada_de_aturdimiento',
+    'Granada Fumígena de Humo': 'granada_fum_gena_de_humo',
+    'Granada Gas CS de Mano': 'granada_gas_cs_de_mano',
+    'Cartucho Gas CS Lanzador': 'cartucho_gas_cs_lanzador',
+    'Cartucho Aturdimiento Lanzador': 'cartucho_aturdimiento_lanzador'
+}
+
+# Totales globales por cada tipo de munición
+totales_por_tipo = {nombre: int(df[col].sum()) for nombre, col in cols_mun_dict.items()}
+tipo_mas_usado = max(totales_por_tipo, key=totales_por_tipo.get)
+cantidad_max_mun = totales_por_tipo[tipo_mas_usado]
+
+# GUDMO que más municiones ha usado
+df_gudmo_mun = df.groupby('gudmo')['total_municiones_evento'].sum().reset_index()
+if not df_gudmo_mun.empty:
+    top_gudmo_row = df_gudmo_mun.loc[df_gudmo_mun['total_municiones_evento'].idxmax()]
+    gudmo_mas_activo = top_gudmo_row['gudmo']
+    gudmo_cant = int(top_gudmo_row['total_municiones_evento'])
+else:
+    gudmo_mas_activo = "N/A"
+    gudmo_cant = 0
+
+# KPIs Principales
 total_intervenciones = len(df)
 total_ciudadanos_les = int(df['ciudadanos_lesionados'].sum())
 total_policias_les = int(df['policias_lesionados'].sum())
-total_municiones = int(
-    df['cartucho_de_gas_cs_37_38'].sum() + 
-    df['granada_de_aturdimiento'].sum() + 
-    df['granada_fum_gena_de_humo'].sum() + 
-    df['granada_gas_cs_de_mano'].sum() +
-    df['cartucho_gas_cs_lanzador'].sum()
-)
+total_municiones_global = int(df['total_municiones_evento'].sum())
 
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Intervenciones Registradas", f"{total_intervenciones:,}")
-k2.metric("Municiones / Elementos Totales", f"{total_municiones:,}")
+k2.metric("Total Municiones Usadas", f"{total_municiones_global:,}")
 k3.metric("Ciudadanos Lesionados", f"{total_ciudadanos_les:,}")
 k4.metric("Policías Lesionados", f"{total_policias_les:,}")
 
 st.markdown("---")
 
-# Gráficas y análisis
+# ---------------------------------------------------------
+# SECCIÓN DE RESALTADO DE HALLAZGOS (MUNICIÓN Y GUDMO)
+# ---------------------------------------------------------
+st.markdown("### 🏆 Hallazgos Destacados en Uso de Municiones")
+col_h1, col_h2 = st.columns(2)
+
+with col_h1:
+    st.success(f"""
+    **🔥 Tipo de Munición Más Usada:**
+    * **{tipo_mas_usado}**
+    * **Total consumido:** {cantidad_max_mun:,} unidades.
+    """)
+
+with col_h2:
+    st.info(f"""
+    **🛡️ Grupo GUDMO con Mayor Consumo:**
+    * **{gudmo_mas_activo}**
+    * **Total municiones empleadas:** {gudmo_cant:,} unidades.
+    """)
+
+st.markdown("---")
+
+# ---------------------------------------------------------
+# GRÁFICAS GENERALES
+# ---------------------------------------------------------
 col_1, col_2 = st.columns(2)
 
 with col_1:
@@ -136,17 +191,46 @@ with col_2:
     df_gudmo.columns = ['gudmo', 'conteo']
     df_gudmo = df_gudmo.sort_values('conteo', ascending=False).head(10)
     fig_g = px.bar(df_gudmo, x='conteo', y='gudmo', orientation='h',
-                   title="Participación de Grupos GUDMO",
+                   title="Participación de Grupos GUDMO por Intervenciones",
                    labels={'conteo': 'Intervenciones Atendidas', 'gudmo': 'Grupo GUDMO'})
     st.plotly_chart(fig_g, use_container_width=True)
 
-st.markdown("### 📊 Consumo de Municiones y Elementos Tácticos")
-col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-col_m1.metric("Cartuchos Gas CS 37/38mm", f"{int(df['cartucho_de_gas_cs_37_38'].sum()):,}")
-col_m2.metric("Granadas de Aturdimiento", f"{int(df['granada_de_aturdimiento'].sum()):,}")
-col_m3.metric("Granadas Fumígenas de Humo", f"{int(df['granada_fum_gena_de_humo'].sum()):,}")
-col_m4.metric("Granadas Gas CS de Mano", f"{int(df['granada_gas_cs_de_mano'].sum()):,}")
-
+# ---------------------------------------------------------
+# ANÁLISIS AGRUPADO: CIUDAD, FACTOR DE ATENCIÓN Y MUNICIÓN
+# ---------------------------------------------------------
 st.markdown("---")
-st.subheader("📋 Tabla Detallada de Intervenciones")
+st.subheader("📊 Análisis de Municiones Agrupado por Ciudad y Factor de Atención")
+st.markdown("""
+Tabla dinámica que consolida el consumo desglosado de cada tipo de munición y elemento táctico, 
+organizado jerárquicamente por **Ciudad** y **Factor de Atención**.
+""")
+
+# Crear dataframe resumido con agrupación
+cols_agrupacion = ['ciudad', 'factor_de_atenci_n_que_genera']
+dict_agregacion = {col: 'sum' for col in list(cols_mun_dict.values()) + ['total_municiones_evento']}
+dict_agregacion['a_o'] = 'count' # Contar número de intervenciones
+
+df_agrupado = df.groupby(cols_agrupacion).agg(dict_agregacion).reset_index()
+df_agrupado = df_agrupado.rename(columns={'a_o': 'total_intervenciones'})
+
+# Reemplazar nombres de columnas técnicas por nombres legibles en la visualización
+renombres_columnas = {
+    'ciudad': 'Ciudad',
+    'factor_de_atenci_n_que_genera': 'Factor de Atención',
+    'total_intervenciones': 'N° Intervenciones',
+    'total_municiones_evento': 'Total Municiones'
+}
+for nombre_legible, col_tecnica in cols_mun_dict.items():
+    renombres_columnas[col_tecnica] = nombre_legible
+
+df_tabla_final = df_agrupado.rename(columns=renombres_columnas)
+df_tabla_final = df_tabla_final.sort_values(by='Total Municiones', ascending=False)
+
+st.dataframe(df_tabla_final, use_container_width=True)
+
+# ---------------------------------------------------------
+# TABLA DE REGISTROS RAW
+# ---------------------------------------------------------
+st.markdown("---")
+st.subheader("📋 Registro Detallado Individual de Intervenciones")
 st.dataframe(df, use_container_width=True)
